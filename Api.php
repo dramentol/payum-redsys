@@ -1,8 +1,6 @@
 <?php
 namespace Crevillo\Payum\Redsys;
 
-use Buzz\Client\ClientInterface;
-use Payum\Core\Bridge\Buzz\ClientFactory;
 use Payum\Core\Bridge\Spl\ArrayObject;
 use Payum\Core\Exception\InvalidArgumentException;
 use Payum\Core\Exception\LogicException;
@@ -15,15 +13,19 @@ class Api
 
     const DS_RESPONSE_CANCELED = '0184';
 
+    const DS_RESPONSE_USER_CANCELED = '9915';
+
     const ORDER_NUMBER_MINIMUM_LENGTH = 4;
 
     const ORDER_NUMBER_MAXIMUM_LENGHT = 12;
+
+    const SIGNATURE_VERSION = 'HMAC_SHA256_V1';
 
     protected $options = array(
         'merchant_code' => null,
         'terminal' => null,
         'secret_key' => null,
-        'sandbox' => true
+        'sandbox' => true,
     );
 
     /**
@@ -46,13 +48,19 @@ class Api
         'CHF' => '756',
         'BRL' => '986',
         'VEF' => '937',
-        'TRL' => '949'
+        'TRL' => '949',
     );
 
-    public function __construct(array $options, ClientInterface $client = null)
-    {
-        $this->client = $client ?: ClientFactory::createCurl();
+    private $payment_vars = array();
 
+    public function setParameter($key, $value)
+    {
+        $this->payment_vars[$key] = $value;
+    }
+
+
+    public function __construct(array $options)
+    {
         $this->options = array_replace( $this->options, $options );
 
         if (true == empty( $this->options['merchant_code'] )) {
@@ -75,9 +83,8 @@ class Api
     public function getRedsysUrl()
     {
         return $this->options['sandbox'] ?
-            'https://sis-t.sermepa.es:25443/sis/realizarPago' :
-            'https://sis.sermepa.es/sis/realizarPago'
-        ;
+            'https://sis-t.redsys.es:25443/sis/realizarPago' :
+            'https://sis.redsys.es/sis/realizarPago';
     }
 
     /**
@@ -145,6 +152,109 @@ class Api
     }
 
     /**
+     * 3DES Function provided by Redsys
+     *
+     * @param string $merchantOrder
+     * @param string $key
+     *
+     * @return string
+     */
+    private function encrypt_3DES($merchantOrder, $key)
+    {
+        // default IV
+        $bytes = array(0, 0, 0, 0, 0, 0, 0, 0);
+        $iv = implode(array_map("chr", $bytes));
+
+        // sign
+        $ciphertext = mcrypt_encrypt(MCRYPT_3DES, $key, $merchantOrder,
+            MCRYPT_MODE_CBC, $iv);
+
+        return $ciphertext;
+    }
+
+    /**
+     * base64_url_encode function provided by Redsys
+     *
+     * @param $input
+     * @return string
+     */
+    function base64_url_encode($input)
+    {
+        return strtr(base64_encode($input), '+/', '-_');
+    }
+
+    /**
+     * Decode function provided by Redsys
+     *
+     * @param $input
+     * @return string
+     */
+    private function base64_url_decode($input)
+    {
+        return base64_decode(strtr($input, '-_', '+/'));
+    }
+
+    /**
+     * Mac256 function provided by Redsys
+     *
+     * @param $ent
+     * @param $key
+     * @return string
+     */
+    private function mac256($ent, $key)
+    {
+        $res = hash_hmac('sha256', $ent, $key, true);
+
+        return $res;
+    }
+
+    /**
+     * encodeBase64 function provided by Redsys
+     *
+     * @param $data
+     * @return string
+     */
+    private function encodeBase64($data)
+    {
+        $data = base64_encode($data);
+
+        return $data;
+    }
+
+    /**
+     * decodeBase64 function provided by Redsys
+     *
+     * @param $data
+     * @return string
+     */
+    private function decodeBase64($data)
+    {
+        $data = base64_decode($data);
+
+        return $data;
+    }
+
+    /**
+     * builds signature from the data sent by Redsys in the reply
+     *
+     * @param $key
+     * @param $data
+     * @return string
+     */
+    function createMerchantSignatureNotif($key, $data)
+    {
+        $key = $this->decodeBase64($key);
+        $decodec = $this->base64_url_decode($data);
+        $orderData = json_decode($decodec, true);
+        $key = $this->encrypt_3DES($orderData['Ds_Order'], $key);
+        $res = $this->mac256($data, $key);
+
+        return $this->base64_url_encode($res);
+    }
+
+    /**
+     * Validates notification sent by Redsys when it receives the payment
+     *
      * @param array $notification
      *
      * @return bool
@@ -153,32 +263,47 @@ class Api
     {
         $notification = ArrayObject::ensureArrayObject($notification);
         $notification->validateNotEmpty('Ds_Signature');
+        $notification->validateNotEmpty('Ds_MerchantParameters');
+        $data = $notification["Ds_MerchantParameters"];
 
-        return $notification['Ds_Signature'] === strtoupper(sha1(
-            $notification['Ds_Amount'].
-            $notification['Ds_Order'].
-            $this->options['merchant_code'].
-            $notification['Ds_Currency'].
-            $notification['Ds_Response'].
-            $this->options['secret_key']
-        ));
+        $key = $this->options['secret_key'];
+        $signedResponse = $this->createMerchantSignatureNotif($key, $data);
+
+        return $signedResponse == $notification['Ds_Signature'];
     }
 
     /**
+     * Builds Merchant Parameters encoded string.
+     * Bank will take care of decode this
+     *
+     * @param array $params
+     * @return string
+     */
+    function createMerchantParameters(array $params)
+    {
+        $json = json_encode($params);
+
+        return $this->encodeBase64($json);
+    }
+
+    /**
+     * Sing request sent to Gateway
+     *
      * @param array $params
      *
      * @return string
      */
     public function sign(array $params)
     {
-        return strtoupper(sha1(
-            $params['Ds_Merchant_Amount'].
-            $params['Ds_Merchant_Order'].
-            $this->options['merchant_code'].
-            $params['Ds_Merchant_Currency'].
-            $params['Ds_Merchant_TransactionType'].
-            $params['Ds_Merchant_MerchantURL'].
-            $this->options['secret_key']
-        ));
+        $base64DecodedKey = base64_decode($this->options['secret_key']);
+        $key = $this->encrypt_3DES($params['Ds_Merchant_Order'],
+            $base64DecodedKey);
+
+        $res = $this->mac256(
+            $this->createMerchantParameters($params),
+            $key
+        );
+
+        return base64_encode($res);
     }
 }

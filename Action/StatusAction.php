@@ -19,20 +19,21 @@ class StatusAction implements ActionInterface
 
         $model = ArrayObject::ensureArrayObject( $request->getModel() );
 
-        if (false == $model['Ds_Merchant_MerchantSignature']) {
+        if (null == $model['Ds_Response']) {
             $request->markNew();
 
             return;
         }
 
 
-        if ($model['Ds_Merchant_MerchantSignature'] && null === $model['Ds_Response']) {
+        if ($model['Ds_AuthorisationCode'] && null === $model['Ds_Response']) {
             $request->markPending();
 
             return;
         }
 
-        if (Api::DS_RESPONSE_CANCELED == $model['Ds_Response']) {
+        if (in_array($model['Ds_Response'],
+            array(Api::DS_RESPONSE_CANCELED, Api::DS_RESPONSE_USER_CANCELED))) {
             $request->markCanceled();
 
             return;
