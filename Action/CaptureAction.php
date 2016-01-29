@@ -54,18 +54,18 @@ class CaptureAction implements ActionInterface, ApiAwareInterface, GenericTokenF
         /** @var $request Capture */
         RequestNotSupportedException::assertSupports($this, $request);
 
-        $postData = ArrayObject::ensureArrayObject($request->getModel());
+        $details = ArrayObject::ensureArrayObject($request->getModel());
 
-        if (empty($postData['Ds_Merchant_MerchantURL']) && $request->getToken() && $this->tokenFactory) {
+        if (empty($details['Ds_Merchant_MerchantURL']) && $request->getToken() && $this->tokenFactory) {
             $notifyToken = $this->tokenFactory->createNotifyToken(
                 $request->getToken()->getGatewayName(),
                 $request->getToken()->getDetails()
             );
 
-            $postData['Ds_Merchant_MerchantURL'] = $notifyToken->getTargetUrl();
+            $details['Ds_Merchant_MerchantURL'] = $notifyToken->getTargetUrl();
         }
 
-        $postData->validatedKeysSet(array(
+        $details->validatedKeysSet(array(
             'Ds_Merchant_Amount',
             'Ds_Merchant_Order',
             'Ds_Merchant_Currency',
@@ -73,28 +73,21 @@ class CaptureAction implements ActionInterface, ApiAwareInterface, GenericTokenF
             'Ds_Merchant_MerchantURL',
         ));
 
-        $postData['Ds_Merchant_MerchantCode'] = $this->api->getMerchantCode();
-        $postData['Ds_Merchant_Terminal'] = $this->api->getMerchantTerminalCode();
+        $details['Ds_Merchant_MerchantCode'] = $this->api->getMerchantCode();
+        $details['Ds_Merchant_Terminal'] = $this->api->getMerchantTerminalCode();
 
-        if (false == $postData['Ds_Merchant_UrlOK'] && $request->getToken()) {
-            $postData['Ds_Merchant_UrlOK'] = $request->getToken()
-                ->getTargetUrl();
-        }
-        if (false == $postData['Ds_Merchant_UrlKO'] && $request->getToken()) {
-            $postData['Ds_Merchant_UrlKO'] = $request->getToken()
-                ->getTargetUrl();
+        if (false == $details['Ds_Merchant_UrlOK'] && $request->getToken()) {
+            $details['Ds_Merchant_UrlOK'] = $request->getToken()->getTargetUrl();
         }
 
-        $details['Ds_SignatureVersion'] = Api::SIGNATURE_VERSION;
-
-        if (false == $postData['Ds_MerchantParameters'] && $request->getToken()) {
-            $details['Ds_MerchantParameters'] = $this->api->createMerchantParameters($postData->toUnsafeArray());
+        if (false == $details['Ds_Merchant_UrlKO'] && $request->getToken()) {
+            $details['Ds_Merchant_UrlKO'] = $request->getToken()->getTargetUrl();
         }
 
-        if (false == $postData['Ds_Signature']) {
-            $details['Ds_Signature'] = $this->api->sign($postData->toUnsafeArray());
+        if (false == $details['Ds_Merchant_MerchantSignature']) {
+            $details['Ds_Merchant_MerchantSignature'] = $this->api->sign($details->toUnsafeArray());
 
-            throw new HttpPostRedirect($this->api->getRedsysUrl(), $details);
+            throw new HttpPostRedirect($this->api->getRedsysUrl(), $details->toUnsafeArray());
         }
     }
 
