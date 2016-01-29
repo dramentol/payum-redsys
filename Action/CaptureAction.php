@@ -54,6 +54,7 @@ class CaptureAction implements ActionInterface, ApiAwareInterface, GenericTokenF
         /** @var $request Capture */
         RequestNotSupportedException::assertSupports($this, $request);
         $postData = ArrayObject::ensureArrayObject($request->getModel());
+
         if (empty($postData['Ds_Merchant_MerchantURL']) && $request->getToken() && $this->tokenFactory) {
             $notifyToken = $this->tokenFactory->createNotifyToken(
                 $request->getToken()->getGatewayName(),
@@ -61,15 +62,25 @@ class CaptureAction implements ActionInterface, ApiAwareInterface, GenericTokenF
             );
             $postData['Ds_Merchant_MerchantURL'] = $notifyToken->getTargetUrl();
         }
+
+        if (empty($postData['Ds_Merchant_MerchantCode'])) {
+            $postData['Ds_Merchant_MerchantCode'] = $this->api->getMerchantCode();
+        }
+
+        if (empty($postData['Ds_Merchant_Terminal'])) {
+            $postData['Ds_Merchant_Terminal'] = $this->api->getMerchantTerminalCode();
+        }
+
         $postData->validatedKeysSet(array(
-            'Ds_Merchant_Amount',
-            'Ds_Merchant_Order',
-            'Ds_Merchant_Currency',
+            'Ds_Merchant_MerchantCode',
+            'Ds_Merchant_Terminal',
             'Ds_Merchant_TransactionType',
+            'Ds_Merchant_Amount',
+            'Ds_Merchant_Currency',
+            'Ds_Merchant_Order',
             'Ds_Merchant_MerchantURL',
         ));
-        $details['Ds_Merchant_MerchantCode'] = $this->api->getMerchantCode();
-        $details['Ds_Merchant_Terminal'] = $this->api->getMerchantTerminalCode();
+
         if (false == $postData['Ds_Merchant_UrlOK'] && $request->getToken()) {
             $postData['Ds_Merchant_UrlOK'] = $request->getToken()
                 ->getTargetUrl();
