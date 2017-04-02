@@ -77,11 +77,11 @@ class CaptureAction implements ActionInterface, ApiAwareInterface, GenericTokenF
         $details['Ds_Merchant_Terminal'] = $this->api->getMerchantTerminalCode();
 
         if (false == $details['Ds_Merchant_UrlOK'] && $request->getToken()) {
-            $details['Ds_Merchant_UrlOK'] = $request->getToken()->getTargetUrl();
+            $details['Ds_Merchant_UrlOK'] = $request->getToken()->getAfterUrl();
         }
 
         if (false == $details['Ds_Merchant_UrlKO'] && $request->getToken()) {
-            $details['Ds_Merchant_UrlKO'] = $request->getToken()->getTargetUrl();
+            $details['Ds_Merchant_UrlKO'] = $request->getToken()->getAfterUrl();
         }
 
         if (false == $details['Ds_Merchant_MerchantSignature']) {
